@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Sherlock
+GenericName=Search
+Comment=Search applications, files, and the web
+Exec=sherlock-search
+Icon=sherlock-search
+Terminal=false
+Categories=Utility;
+Keywords=search;find;sherlock;apps;files;
+StartupNotify=true
+StartupWMClass=local.sherlock.Sherlock

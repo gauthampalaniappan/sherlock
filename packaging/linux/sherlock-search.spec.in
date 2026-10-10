@@ -1,0 +1,64 @@
+# RPM recipe for Fedora. @VERSION@ and @DATE@ are filled in by
+# packaging/linux/build-packages.sh from sherlock/__init__.py.
+#
+# Packaged as "sherlock-search": Debian/Ubuntu (and a Fedora COPR) already use
+# the name "sherlock" for an unrelated username-search tool.
+%{!?_metainfodir: %global _metainfodir %{_datadir}/metainfo}
+
+Name:           sherlock-search
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Search applications, files, and the web from one small window
+License:        MIT
+URL:            https://github.com/gauthampalaniappan/sherlock
+Source0:        %{name}-%{version}.tar.gz
+BuildArch:      noarch
+
+BuildRequires:  python3
+BuildRequires:  desktop-file-utils
+
+Requires:       python3
+Requires:       python3-gobject
+Requires:       gtk4
+Requires:       libadwaita
+Recommends:     plocate
+Recommends:     xdg-utils
+
+%description
+A small search window in the spirit of classic Mac OS Sherlock. Type, and
+results update from installed applications, files (plocate or Tracker when
+available, or a short folder scan), and a single "Search the web" action.
+
+%prep
+%autosetup -n %{name}-%{version}
+
+%build
+# Pure Python; nothing to build.
+
+%install
+install -d %{buildroot}%{_datadir}/%{name}
+cp -a sherlock %{buildroot}%{_datadir}/%{name}/sherlock
+find %{buildroot}%{_datadir}/%{name} -name '__pycache__' -prune -exec rm -rf {} +
+install -Dm0755 packaging/linux/sherlock-search.sh %{buildroot}%{_bindir}/sherlock-search
+install -Dm0644 data/sherlock-search.desktop %{buildroot}%{_datadir}/applications/sherlock-search.desktop
+install -Dm0644 data/sherlock.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sherlock-search.svg
+install -Dm0644 data/sherlock-search.metainfo.xml %{buildroot}%{_metainfodir}/sherlock-search.metainfo.xml
+%if 0%{?fedora} || 0%{?rhel}
+%py_byte_compile %{python3} %{buildroot}%{_datadir}/%{name}
+%endif
+
+%check
+desktop-file-validate %{buildroot}%{_datadir}/applications/sherlock-search.desktop
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/sherlock-search
+%{_datadir}/%{name}/
+%{_datadir}/applications/sherlock-search.desktop
+%{_datadir}/icons/hicolor/scalable/apps/sherlock-search.svg
+%{_metainfodir}/sherlock-search.metainfo.xml
+
+%changelog
+* @DATE@ Gautham Palaniappan - @VERSION@-1
+- Release @VERSION@

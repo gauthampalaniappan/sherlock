@@ -1,0 +1,18 @@
+Package: sherlock-search
+Version: @VERSION@-1
+Architecture: all
+Maintainer: Gautham Palaniappan <gauthampalaniappan@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1
+Recommends: plocate, xdg-utils
+Section: utils
+Priority: optional
+Homepage: https://github.com/gauthampalaniappan/sherlock
+Description: Search applications, files, and the web from one small window
+ A small search window in the spirit of classic Mac OS Sherlock. Type, and
+ results update from installed applications, files (plocate or Tracker when
+ available, or a short folder scan), and a single "Search the web" action
+ that opens DuckDuckGo in your browser.
+ .
+ Installed as "sherlock-search" so it does not collide with the unrelated
+ "sherlock" username-search package.

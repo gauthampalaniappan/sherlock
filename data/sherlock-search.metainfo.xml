@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Shown by GNOME Software / KDE Discover when the RPM or .deb is opened. -->
+<component type="desktop-application">
+  <id>local.sherlock.Sherlock</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Sherlock</name>
+  <summary>Search applications, files, and the web from one small window</summary>
+  <developer id="io.github.gauthampalaniappan">
+    <name>Gautham Palaniappan</name>
+  </developer>
+  <description>
+    <p>
+      A small search window in the spirit of classic Mac OS Sherlock. Type, and
+      results update from three channels: installed applications, files (using
+      plocate or Tracker when available, or a short folder scan), and a single
+      "Search the web" action that opens DuckDuckGo in your browser.
+    </p>
+    <p>
+      Sherlock does not download or scrape web pages.
+    </p>
+  </description>
+  <launchable type="desktop-id">sherlock-search.desktop</launchable>
+  <url type="homepage">https://github.com/gauthampalaniappan/sherlock</url>
+  <url type="bugtracker">https://github.com/gauthampalaniappan/sherlock/issues</url>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>sherlock-search</binary>
+  </provides>
+  <releases>
+    <release version="1.0.0" date="2026-10-10"/>
+  </releases>
+</component>

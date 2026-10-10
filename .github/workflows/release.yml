@@ -1,0 +1,175 @@
+# Builds Sherlock's Linux packages (.rpm for Fedora, .deb for Debian/Ubuntu).
+#
+# - Push a tag like v1.0.0 -> both packages are built, installed, launch-tested,
+#   and attached to a *draft* GitHub Release. Review it, then press Publish.
+# - Run it by hand (Actions tab -> Release -> Run workflow) to test the builds
+#   without making a release; the packages appear as downloadable artifacts.
+#
+# Linux only: Sherlock searches .desktop launchers and Linux file indexes
+# (plocate, Tracker), which do not exist on Windows or macOS.
+#
+# The tag must match __version__ in sherlock/__init__.py, and
+# data/sherlock-search.metainfo.xml needs a <release> line for that version.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version and tests
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read version
+        id: v
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' sherlock/__init__.py)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $version in sherlock/__init__.py"
+            exit 1
+          fi
+          if ! grep -q "<release version=\"$version\"" data/sherlock-search.metainfo.xml; then
+            echo "::error::Add <release version=\"$version\" date=\"YYYY-MM-DD\"/> to data/sherlock-search.metainfo.xml"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        run: |
+          python -m py_compile sherlock/*.py
+          python -m unittest discover -s tests -v
+
+  fedora:
+    name: Linux (Fedora .rpm)
+    needs: version
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install build tools
+        run: |
+          dnf -y install rpm-build desktop-file-utils python3 python3-devel tar \
+            xorg-x11-server-Xvfb mesa-dri-drivers dejavu-sans-fonts
+
+      - uses: actions/checkout@v7
+
+      - name: Build RPM
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: packaging/linux/build-packages.sh rpm
+
+      - name: Install the RPM and launch it
+        run: |
+          dnf -y install ./release/*.rpm
+          rpm -qi sherlock-search
+          Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
+          export DISPLAY=:99 GDK_BACKEND=x11 GSK_RENDERER=cairo
+          sleep 2
+          # Sherlock stays open until closed, so "still running after 10 s" is a pass.
+          rc=0
+          timeout 10 sherlock-search > out.txt 2>&1 || rc=$?
+          cat out.txt
+          if [ "$rc" -ne 124 ] || grep -q Traceback out.txt; then
+            echo "::error::sherlock-search exited early (code $rc)"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sherlock-fedora
+          path: release/*.rpm
+          if-no-files-found: error
+
+  ubuntu:
+    name: Linux (Debian/Ubuntu .deb)
+    needs: version
+    # Built and tested on Ubuntu 24.04 LTS, the oldest system the .deb targets.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build .deb
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: packaging/linux/build-packages.sh deb
+
+      - name: Install the .deb and launch it
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./release/*.deb xvfb
+          dpkg -s sherlock-search | head -3
+          export GSK_RENDERER=cairo
+          rc=0
+          timeout 10 xvfb-run -a sherlock-search > out.txt 2>&1 || rc=$?
+          cat out.txt
+          if [ "$rc" -ne 124 ] || grep -q Traceback out.txt; then
+            echo "::error::sherlock-search exited early (code $rc)"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sherlock-debian
+          path: release/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [version, fedora, ubuntu]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: release
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          | System | Download |
+          | --- | --- |
+          | Fedora | \`sherlock-search-$VERSION-1.*.noarch.rpm\` — \`sudo dnf install ./sherlock-search-*.rpm\` |
+          | Debian 13 / Ubuntu 24.04+ | \`sherlock-search_$VERSION-1_all.deb\` — \`sudo apt install ./sherlock-search_*.deb\` |
+
+          Then open **Sherlock** from the app grid, or run \`sherlock-search\`.
+          The package and command are named \`sherlock-search\` because Debian and
+          Ubuntu already have an unrelated \`sherlock\` package.
+
+          For fast file search also install \`plocate\` and run \`sudo updatedb\` once.
+          EOF
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "Sherlock $VERSION" \
+            --notes-file notes.md \
+            --generate-notes
