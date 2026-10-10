@@ -1,14 +1,16 @@
 # Builds Sherlock's Linux packages (.rpm for Fedora, .deb for Debian/Ubuntu).
 #
-# - Push a tag like v1.0.0 -> both packages are built, installed, launch-tested,
-#   and attached to a *draft* GitHub Release. Review it, then press Publish.
-# - Run it by hand (Actions tab -> Release -> Run workflow) to test the builds
-#   without making a release; the packages appear as downloadable artifacts.
+# Two ways to make a release (both end in a *draft* you review, then Publish):
+# - Actions tab -> Release -> Run workflow, tick "Create draft release".
+#   The tag (v<version>) is created by GitHub when you press Publish.
+# - Or push a tag like v1.2.3 yourself.
+# Running it without the tick only builds and launch-tests the packages;
+# they appear as downloadable artifacts on that run.
 #
 # Linux only: Sherlock searches .desktop launchers and Linux file indexes
 # (plocate, Tracker), which do not exist on Windows or macOS.
 #
-# The tag must match __version__ in sherlock/__init__.py, and
+# The version comes from __version__ in sherlock/__init__.py, and
 # data/sherlock-search.metainfo.xml needs a <release> line for that version.
 name: Release
 
@@ -16,6 +18,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Create draft release"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,22 +37,52 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+      skip: ${{ steps.v.outputs.skip }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Read version
+      - name: Read version and decide what to do
         id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAKE_RELEASE: ${{ inputs.release }}
         run: |
           version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' sherlock/__init__.py)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $version in sherlock/__init__.py"
-            exit 1
-          fi
+          tag="v$version"
           if ! grep -q "<release version=\"$version\"" data/sherlock-search.metainfo.xml; then
             echo "::error::Add <release version=\"$version\" date=\"YYYY-MM-DD\"/> to data/sherlock-search.metainfo.xml"
             exit 1
           fi
+          release=false
+          skip=false
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $version in sherlock/__init__.py"
+              exit 1
+            fi
+            if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              # Publishing a draft creates the tag, which lands here; already done.
+              echo "::notice::Release $tag already exists; nothing to build."
+              skip=true
+            else
+              release=true
+            fi
+          elif [[ "$MAKE_RELEASE" == "true" ]]; then
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              echo "::error::$tag is already released. Bump __version__ in sherlock/__init__.py (and add a <release> line to data/sherlock-search.metainfo.xml) first."
+              exit 1
+            fi
+            release=true
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "release=$release"
+            echo "skip=$skip"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version, release=$release, skip=$skip"
 
       - uses: actions/setup-python@v7
         with:
@@ -59,6 +96,7 @@ jobs:
   fedora:
     name: Linux (Fedora .rpm)
     needs: version
+    if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
@@ -99,6 +137,7 @@ jobs:
   ubuntu:
     name: Linux (Debian/Ubuntu .deb)
     needs: version
+    if: needs.version.outputs.skip != 'true'
     # Built and tested on Ubuntu 24.04 LTS, the oldest system the .deb targets.
     runs-on: ubuntu-24.04
     steps:
@@ -131,7 +170,7 @@ jobs:
 
   release:
     name: Draft GitHub Release
-    if: github.ref_type == 'tag'
+    if: needs.version.outputs.release == 'true'
     needs: [version, fedora, ubuntu]
     runs-on: ubuntu-latest
     permissions:
@@ -152,7 +191,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
+          # Re-running replaces an earlier unpublished draft for this version.
+          if [ "$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" = "true" ]; then
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes
+          fi
           cat > notes.md <<EOF
           ## Install
 
@@ -167,9 +211,10 @@ jobs:
 
           For fast file search also install \`plocate\` and run \`sudo updatedb\` once.
           EOF
-          gh release create "$GITHUB_REF_NAME" release/* \
+          gh release create "$TAG" release/* \
             --repo "$GITHUB_REPOSITORY" \
             --draft \
+            --target "$GITHUB_SHA" \
             --title "Sherlock $VERSION" \
             --notes-file notes.md \
             --generate-notes

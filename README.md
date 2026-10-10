@@ -135,10 +135,11 @@ packaging/linux/                     .rpm and .deb build script and recipes
 
 1. Bump `__version__` in `sherlock/__init__.py`.
 2. Add a line for that version to `data/sherlock-search.metainfo.xml`, e.g. `<release version="1.1.0" date="2026-11-01"/>` (newest first).
-3. Commit, then `git tag v1.1.0 && git push origin main v1.1.0`.
-4. GitHub Actions runs the tests, builds the `.rpm` (in Fedora) and `.deb` (on Ubuntu 24.04), installs and launches each one, and creates a **draft** release. Check it on the Releases page, then press **Publish**.
+3. Commit and push to `main`.
+4. On GitHub, open **Actions → Release → Run workflow**, tick **Create draft release**, and run it (pushing a tag such as `v1.1.0` does the same).
+5. GitHub Actions runs the tests, builds the `.rpm` (in Fedora) and `.deb` (on Ubuntu 24.04), installs and launches each one, and creates a **draft** release. Check it on the Releases page, then press **Publish**; GitHub creates the tag at that moment.
 
-To test the builds without releasing, use **Actions → Release → Run workflow**; the packages appear as artifacts on that run. To build locally: `packaging/linux/build-packages.sh` (needs `dpkg-deb` and/or `rpmbuild`), output goes to `release/`.
+Running the workflow without the tick only builds and tests; the packages appear as artifacts on that run. To build locally: `packaging/linux/build-packages.sh` (needs `dpkg-deb` and/or `rpmbuild`), output goes to `release/`.
 
 ## License
 
